@@ -698,12 +698,14 @@ SQLRETURN SQL_API SQLColAttributes(
 	ret = SQL_SUCCESS;
 	switch(fDescType) {
 		case SQL_COLUMN_NAME: case SQL_DESC_NAME:
-		case SQL_COLUMN_LABEL: /* = SQL_DESC_LABEL */
+		case SQL_COLUMN_LABEL: /* = SQL_DESC_LABEL */			
 			if (cbDescMax < 0) {
 				strcpy(stmt->sqlState, "HY090"); // Invalid string or buffer length
 				return SQL_ERROR;
 			}
-			if (snprintf(rgbDesc, cbDescMax, "%s", sqlcol->name) + 1 > cbDescMax) {
+			SQLSMALLINT length = snprintf(rgbDesc, cbDescMax, "%s", sqlcol->name);
+			*pcbDesc = length;
+			if (length + 1 > cbDescMax) {
 				strcpy(stmt->sqlState, "01004"); // String data, right truncated
 				ret = SQL_SUCCESS_WITH_INFO;
 			}
@@ -1204,13 +1206,13 @@ SQLRETURN SQL_API SQLGetData(
 	MdbSQLColumn *sqlcol;
 	MdbColumn *col;
 	MdbTableDef *table;
-	int i, intValue;
+	int i, intValue, coltype;
 
 	TRACE("SQLGetData");
 	stmt = (struct _hstmt *) hstmt;
 	sql = stmt->sql;
 	mdb = sql->mdb;
-
+	
 	if (icol<1 || icol>sql->num_columns) {
 		strcpy(stmt->sqlState, "07009");
 		return SQL_ERROR;
@@ -1236,8 +1238,9 @@ SQLRETURN SQL_API SQLGetData(
 		strcpy(stmt->sqlState, "HY009");
 	 	return SQL_ERROR;
 	}
+	coltype = col->col_type;
 
-	if (col->col_type == MDB_BOOL) {
+	if (coltype== MDB_BOOL) {
 		// bool cannot be null
 		if (fCType == SQL_C_CHAR) {
 			((SQLCHAR *)rgbValue)[0] = col->cur_value_len ? '0' : '1';
@@ -1284,7 +1287,7 @@ SQLRETURN SQL_API SQLGetData(
 		fCType = _odbc_get_client_type(col);
 	if (fCType == SQL_C_CHAR || fCType == SQL_C_WCHAR)
 		goto to_c_char;
-	switch(col->col_type) {
+	switch(coltype) {
 		case MDB_BYTE:
 			intValue = (int)mdb_get_byte(mdb->pg_buf, col->cur_value_start);
 			goto to_integer_type;
@@ -1326,7 +1329,7 @@ SQLRETURN SQL_API SQLGetData(
 					*pcbValue = sizeof(SQLSMALLINT);
 				break;
 			case SQL_C_SSHORT:
-				if (intValue<SHRT_MIN || intValue>SHRT_MAX) {
+				if (coltype == MDB_LONGINT && (intValue<SHRT_MIN || intValue>SHRT_MAX)) {
 					strcpy(stmt->sqlState, "22003"); // Numeric value out of range
 					return SQL_ERROR;
 				}
